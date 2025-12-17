@@ -8,6 +8,9 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Log
 
+import com.hiennv.flutter_callkit_incoming.CallkitEventCallback
+import com.hiennv.flutter_callkit_incoming.FlutterCallkitIncomingPlugin
+
 class CallkitIncomingBroadcastReceiver : BroadcastReceiver() {
 
     companion object {
@@ -81,10 +84,7 @@ class CallkitIncomingBroadcastReceiver : BroadcastReceiver() {
             }
     }
 
-    // Get notification manager dynamically to handle plugin lifecycle properly
-    private fun getCallkitNotificationManager(): CallkitNotificationManager? {
-        return FlutterCallkitIncomingPlugin.getInstance()?.getCallkitNotificationManager()
-    }
+    private val callkitNotificationManager: CallkitNotificationManager? = FlutterCallkitIncomingPlugin.getInstance()?.getCallkitNotificationManager()
 
 
     @SuppressLint("MissingPermission")
@@ -94,7 +94,7 @@ class CallkitIncomingBroadcastReceiver : BroadcastReceiver() {
         when (action) {
             "${context.packageName}.${CallkitConstants.ACTION_CALL_INCOMING}" -> {
                 try {
-                    getCallkitNotificationManager()?.showIncomingNotification(data)
+                    callkitNotificationManager?.showIncomingNotification(data)
                     sendEventFlutter(CallkitConstants.ACTION_CALL_INCOMING, data)
                     addCall(context, Data.fromBundle(data))
                 } catch (error: Exception) {
@@ -119,8 +119,6 @@ class CallkitIncomingBroadcastReceiver : BroadcastReceiver() {
 
             "${context.packageName}.${CallkitConstants.ACTION_CALL_ACCEPT}" -> {
                 try {
-                    // Log.d(TAG, "[CALLKIT] 📱 ACTION_CALL_ACCEPT")
-                    FlutterCallkitIncomingPlugin.notifyEventCallbacks(CallkitEventCallback.CallEvent.ACCEPT, data)
                     // start service and show ongoing call when call is accepted
                     CallkitNotificationService.startServiceWithAction(
                         context,
@@ -136,11 +134,16 @@ class CallkitIncomingBroadcastReceiver : BroadcastReceiver() {
 
             "${context.packageName}.${CallkitConstants.ACTION_CALL_DECLINE}" -> {
                 try {
-                    // Log.d(TAG, "[CALLKIT] 📱 ACTION_CALL_DECLINE")           
-                    // Notify native decline callbacks
+                    // Remove last_incoming_call natively
+                    val prefs = context.getSharedPreferences("FlutterCallkitIncoming", Context.MODE_PRIVATE)
+                    prefs.edit().remove("last_incoming_call").apply()
+                    Log.d(TAG, "Removed last_incoming_call on Decline (terminated mode)")
+
+                    // Notify plugin Dart callbacks (works if app is running)
                     FlutterCallkitIncomingPlugin.notifyEventCallbacks(CallkitEventCallback.CallEvent.DECLINE, data)
+
                     // clear notification
-                    getCallkitNotificationManager()?.clearIncomingNotification(data, false)
+                    callkitNotificationManager?.clearIncomingNotification(data, false)
                     sendEventFlutter(CallkitConstants.ACTION_CALL_DECLINE, data)
                     removeCall(context, Data.fromBundle(data))
                 } catch (error: Exception) {
@@ -151,7 +154,7 @@ class CallkitIncomingBroadcastReceiver : BroadcastReceiver() {
             "${context.packageName}.${CallkitConstants.ACTION_CALL_ENDED}" -> {
                 try {
                     // clear notification and stop service
-                    getCallkitNotificationManager()?.clearIncomingNotification(data, false)
+                    callkitNotificationManager?.clearIncomingNotification(data, false)
                     CallkitNotificationService.stopService(context)
                     sendEventFlutter(CallkitConstants.ACTION_CALL_ENDED, data)
                     removeCall(context, Data.fromBundle(data))
@@ -163,9 +166,8 @@ class CallkitIncomingBroadcastReceiver : BroadcastReceiver() {
             "${context.packageName}.${CallkitConstants.ACTION_CALL_TIMEOUT}" -> {
                 try {
                     // clear notification and show miss notification
-                    val notificationManager = getCallkitNotificationManager()
-                    notificationManager?.clearIncomingNotification(data, false)
-                    notificationManager?.showMissCallNotification(data)
+                    callkitNotificationManager?.clearIncomingNotification(data, false)
+                    callkitNotificationManager?.showMissCallNotification(data)
                     sendEventFlutter(CallkitConstants.ACTION_CALL_TIMEOUT, data)
                     removeCall(context, Data.fromBundle(data))
                 } catch (error: Exception) {
@@ -176,7 +178,7 @@ class CallkitIncomingBroadcastReceiver : BroadcastReceiver() {
             "${context.packageName}.${CallkitConstants.ACTION_CALL_CONNECTED}" -> {
                 try {
                     // update notification on going connected
-                    getCallkitNotificationManager()?.showOngoingCallNotification(data, true)
+                    callkitNotificationManager?.showOngoingCallNotification(data, true)
                     sendEventFlutter(CallkitConstants.ACTION_CALL_CONNECTED, data)
                 } catch (error: Exception) {
                     Log.e(TAG, null, error)
@@ -185,7 +187,7 @@ class CallkitIncomingBroadcastReceiver : BroadcastReceiver() {
 
             "${context.packageName}.${CallkitConstants.ACTION_CALL_CALLBACK}" -> {
                 try {
-                    getCallkitNotificationManager()?.clearMissCallNotification(data)
+                    callkitNotificationManager?.clearMissCallNotification(data)
                     sendEventFlutter(CallkitConstants.ACTION_CALL_CALLBACK, data)
                     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
                         val closeNotificationPanel = Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)
